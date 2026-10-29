@@ -2654,6 +2654,25 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '该账号已停止任务': 'Tasks disabled for this account',
     '任务开': 'Tasks on',
     '任务关': 'Tasks off',
+    'LLM 流 开': 'LLM flow on',
+    'LLM 流 关': 'LLM flow off',
+    '签到福利 开': 'Rewards on',
+    '签到福利 关': 'Rewards off',
+    'LLM 流全开': 'Enable LLM flow for all',
+    'LLM 流全关': 'Disable LLM flow for all',
+    '签到福利全开': 'Enable rewards for all',
+    '签到福利全关': 'Disable rewards for all',
+    '该账号的 LLM 流已开启': 'LLM flow enabled for this account',
+    '该账号的 LLM 流已关闭（签到福利不受影响）': 'LLM flow disabled for this account (rewards unaffected)',
+    '该账号已开启签到福利': 'Rewards enabled for this account',
+    '该账号已关闭签到福利（LLM 流不受影响）': 'Rewards disabled for this account (LLM flow unaffected)',
+    '已开启所有账号的 LLM 流': 'LLM flow enabled for all accounts',
+    '已关闭所有账号的 LLM 流（签到福利未改动）': 'LLM flow disabled for all accounts (rewards unchanged)',
+    '已开启所有账号的签到福利': 'Rewards enabled for all accounts',
+    '已关闭所有账号的签到福利（LLM 流未改动）': 'Rewards disabled for all accounts (LLM flow unchanged)',
+    'LLM 关 · 签到开': 'LLM off · rewards on',
+    'LLM 关 · 签到关': 'LLM off · rewards off',
+    '面板手动关闭了 LLM 流，该账号不参与 API 轮询（签到福利不受影响）': 'Manually disabled LLM flow; this account takes no API traffic (rewards unaffected)',
     '账号当日消耗的 token 达到该值后暂停接单，请求自动切到其他账号；本地时间 0 点后自动恢复。填 0 表示不限（不限额）；与「保留积分」各自独立，任一命中都会暂停接单。': 'Once the token use of an account for the day reaches this, it stops taking orders and requests switch to other accounts; it recovers after local midnight. 0 means no limit; it is independent of Reserved credits, and either one pauses order taking.',
     '账号当日消费的积分达到该值后，只允许请求免费模型（目录中标记为 x0.00 的模型），需要花费积分的模型自动切到其他账号；本地时间 0 点后自动恢复。填 0 表示关闭（默认）。': 'Once the credit spend of an account for the day reaches this, only free models are allowed (those marked x0.00 in the catalog) and models that cost credits switch to other accounts; it recovers after local midnight. 0 turns it off (default).',
     '账号，之后相关请求都会走该账号': 'account; requests will then go through it',
@@ -4261,8 +4280,10 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     <div class="tb-group">
     <button class="sec" onclick="autoAssignSlots()" title="把尚未绑定出口的已启用账号依次分配到已启用的代理槽；已有绑定的账号不受影响">一键分配代理</button>
     <button class="sec" id="btnProductAll" onclick="cycleAllProducts(this)" title="把全部账号（含另一个版本）的出站身份切到下一个：WB → VSC → CLI">一键切换所有出站身份：<span id="productAllLabel">WB</span></button>
-    <button class="sec" onclick="setAll(true, this)">全部启用</button>
-    <button class="sec" onclick="setAll(false, this)">全部停用</button>
+    <button class="sec" onclick="setAll(true, this)" title="只开启所有账号的 LLM 流，不改动签到福利开关">LLM 流全开</button>
+    <button class="sec" onclick="setAll(false, this)" title="只关闭所有账号的 LLM 流，不改动签到福利开关">LLM 流全关</button>
+    <button class="sec" onclick="setAllTasks(true, this)" title="只开启所有账号的签到福利，不改动 LLM 流开关">签到福利全开</button>
+    <button class="sec" onclick="setAllTasks(false, this)" title="只关闭所有账号的签到福利，不改动 LLM 流开关">签到福利全关</button>
     </div>
   </div>
     <div id="accounts"></div>
@@ -8518,8 +8539,8 @@ function accountRow(a){
   const isTokenBad = !!(a.tokenExpired || a.expiresIn === 'expired');
   const state = !a.enabled
               ? (a.tasksEnabled
-                 ? '<span class="badge off" title="不接 API 流量，但仍参与签到 / 任务">已停用 · 任务中</span>'
-                 : '<span class="badge off">已停用</span>')
+                 ? '<span class="badge off" title="LLM 流已关闭，不接 API 流量；签到福利仍在运行">LLM 关 · 签到开</span>'
+                 : '<span class="badge off" title="LLM 流与签到福利都已关闭">LLM 关 · 签到关</span>')
               : isTokenBad ? '<span class="badge bad" title="登录凭证已失效（上游返回 401 或已过期），请重新登录">凭证失效</span>'
               : a.reserveBlocked ? '<span class="badge warn">保留积分</span>'
               : a.dailyLimitBlocked ? '<span class="badge warn" title="今日已用 ' + fmt(a.dailyTokensToday || 0) + ' / ' + fmt(a.dailyTokenLimit || 0) + ' token，暂停接单（本地 0 点恢复）">日限额</span>'
@@ -8631,10 +8652,13 @@ function accountRow(a){
     +     (a.note
           ? '<span class="note-chip has" title="点击编辑备注" onclick="editAccountNote(&quot;' + uidAttr + '&quot;)">' + esc(a.note) + '</span>'
           : '<span class="note-chip" title="点击添加备注，比如「批量」/「自用」" onclick="editAccountNote(&quot;' + uidAttr + '&quot;)">+ 备注</span>')
+    // 两个独立开关并排：LLM 流控制 API 派单，签到福利控制签到 / 成长任务。
+    // 旧版「启用/停用」会同时改两件事，现已拆开，互不影响。
+    +     '<span class="badge mini ' + (a.enabled ? 'ok' : 'off') + '" style="cursor:pointer;margin-left:6px" title="LLM 流开关：控制 API / 对话请求是否派发到该账号；与签到福利互不影响，点一下切换" onclick="toggleAccount(&quot;' + uidAttr + '&quot;,' + (!a.enabled) + ')">LLM 流 ' + (a.enabled ? '开' : '关') + '</span>'
     // API Key 账号没有个人成长体系，签到/任务开关对它没有意义：上游一律拒绝，
     // 画出来只会让人以为点了能开。
     +     (a.apiKey ? ''
-          : '<span class="badge mini ' + (a.tasksEnabled ? 'ok' : 'off') + '" style="cursor:pointer;margin-left:6px" title="参与签到 / 成长任务 / 连登管家 / 猫猫旅行 / 国际版活跃；与 API 取号无关，点一下切换" onclick="toggleAccountTasks(&quot;' + uidAttr + '&quot;,' + (!a.tasksEnabled) + ')">任务' + (a.tasksEnabled ? '开' : '关') + '</span>')
+          : '<span class="badge mini ' + (a.tasksEnabled ? 'ok' : 'off') + '" style="cursor:pointer;margin-left:6px" title="签到福利开关：参与签到 / 成长任务 / 连登管家 / 猫猫旅行 / 国际版每日活跃；与 LLM 派单互不影响，点一下切换" onclick="toggleAccountTasks(&quot;' + uidAttr + '&quot;,' + (!a.tasksEnabled) + ')">签到福利 ' + (a.tasksEnabled ? '开' : '关') + '</span>')
     // 移动端专用：版本 + 状态徽章靠右同行（桌面隐藏，用表格自己的两列）。
     +     '<span class="acct-mobile-badges">' + realmBadgeMobile + state + tierBadge + '</span>'
     +   '</div>'
@@ -8662,7 +8686,6 @@ function accountRow(a){
     + '<td class="acct-actions" style="text-align:center;white-space:nowrap;vertical-align:middle">'
     + '<div class="acct-actions-col">'
     +   '<div class="acct-actions-row">'
-    +     '<button class="sec mini" onclick="toggleAccount(&quot;' + uidAttr + '&quot;,' + (!a.enabled) + ', this)">' + (a.enabled ? '停用' : '启用') + '</button>'
     +     '<button class="sec mini" onclick="testAccount(&quot;' + uidAttr + '&quot;, this)">测试</button>'
     +     (isTokenBad
           ? '<button class="bad mini" onclick="openLoginModal(&quot;' + realmAttr + '&quot;)" title="凭证已失效，点击重新扫码授权并自动更新该账号">重新登录</button>'
@@ -8764,7 +8787,8 @@ function disabledRows(){
     const detail = a.lastErrorDetail || '';
     if(!a.enabled){
       rows.push({who, realm, scope: '账号', kind: '本地停用', manual: true,
-                 reason: '面板手动停用，该账号不参与轮询', until: ''});
+                 reason: '面板手动关闭了 LLM 流，该账号不参与 API 轮询（签到福利不受影响）',
+                 until: ''});
     }
     if(a.inCooldown){
       const secs = Number(a.cooldownFor || 0);
@@ -9111,7 +9135,7 @@ async function toggleAccount(uid, enable, btn){
   try{
     await postJSON('/accounts/set', {uid: uid, enabled: enable});
     await loadAccounts();
-    toast(enable ? '账号已成功启用' : '账号已停用', 'ok');
+    toast(enable ? '该账号的 LLM 流已开启' : '该账号的 LLM 流已关闭（签到福利不受影响）', 'ok');
   }catch(e){
     toast('操作失败: ' + e.message, 'bad');
   }finally{
@@ -9122,7 +9146,7 @@ async function toggleAccountTasks(uid, enable){
   try{
     await postJSON('/accounts/set', {uid: uid, tasksEnabled: enable});
     await loadAccounts();
-    toast(enable ? '该账号已参与任务' : '该账号已停止任务', 'ok');
+    toast(enable ? '该账号已开启签到福利' : '该账号已关闭签到福利（LLM 流不受影响）', 'ok');
   }catch(e){
     toast('操作失败: ' + e.message, 'bad');
   }
@@ -9461,7 +9485,19 @@ async function setAll(enable, btn){
   try{
     await postJSON('/accounts/set-all', {enabled: enable});
     await loadAccounts();
-    toast(enable ? '已全部启用所有账号' : '已全部停用所有账号', 'ok');
+    toast(enable ? '已开启所有账号的 LLM 流' : '已关闭所有账号的 LLM 流（签到福利未改动）', 'ok');
+  }catch(e){
+    toast('批量操作失败: ' + e.message, 'bad');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+async function setAllTasks(enable, btn){
+  if(btn) btn.disabled = true;
+  try{
+    await postJSON('/accounts/set-all', {tasksEnabled: enable});
+    await loadAccounts();
+    toast(enable ? '已开启所有账号的签到福利' : '已关闭所有账号的签到福利（LLM 流未改动）', 'ok');
   }catch(e){
     toast('批量操作失败: ' + e.message, 'bad');
   }finally{

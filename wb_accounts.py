@@ -4347,13 +4347,13 @@ class AccountPool(object):
     def set_enabled(self, uid, enabled, tasks_enabled=None):
         account = self.get(uid)
         if account is None: return None
+        # API dispatch and task participation are two independent switches.
+        # `enabled` only controls whether LLM traffic is routed here; check-in
+        # and the other reward tasks keep their own `tasksEnabled` state. A
+        # caller may still set both in one request by naming tasks_enabled.
         account.enabled = bool(enabled)
-        # Disabling stops tasks too unless the caller names the task flag
-        # explicitly; the panel sends both when it wants API-only or
-        # tasks-only behaviour.
-        account.tasks_enabled = (bool(tasks_enabled)
-                                 if tasks_enabled is not None
-                                 else bool(enabled))
+        if tasks_enabled is not None:
+            account.tasks_enabled = bool(tasks_enabled)
         if enabled:
             account.clear_error()
         account.save(self.dir)
@@ -4627,15 +4627,23 @@ class AccountPool(object):
         return account.public()
 
     def set_all_enabled(self, enabled, realm=None):
+        """Bulk-switch LLM dispatch; task participation is left untouched."""
         with self._lock:
             for account in self.accounts:
                 if realm and account.realm != realm: continue
                 account.enabled = bool(enabled)
-                account.tasks_enabled = bool(enabled)
                 if enabled:
                     account.clear_error()
                 account.save(self.dir)
         self.apply_proxy_slots()
+
+    def set_all_tasks_enabled(self, tasks_enabled, realm=None):
+        """Bulk-switch task participation without touching LLM dispatch."""
+        with self._lock:
+            for account in self.accounts:
+                if realm and account.realm != realm: continue
+                account.tasks_enabled = bool(tasks_enabled)
+                account.save(self.dir)
 
     def task_accounts(self, realm=None):
         """Accounts that participate in scheduled / manual tasks.

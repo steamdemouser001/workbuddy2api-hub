@@ -66,7 +66,7 @@ check('小时级剩余时间格式（2h05m 风格）', /降权 1h\d{2}m/.test(ro
 /* ---- 2. 回归：原有几档不受影响 --------------------------------------- */
 
 check('正常账号仍显示可用', row({}).includes('可用'), row({}));
-check('停用优先', row({enabled: false, breakerFor: 600}).includes('已停用'));
+check('停用优先', row({enabled: false, breakerFor: 600}).includes('LLM 关'));
 check('保留积分优先', row({reserveBlocked: true}).includes('保留积分'));
 check('日限额优先', row({dailyLimitBlocked: true}).includes('日限额'));
 check('积分限额优先', row({creditLimitReached: true}).includes('积分限额'));

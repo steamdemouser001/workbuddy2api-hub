@@ -40,16 +40,23 @@ function check(label, ok, detail) {
 
 /* ---- 1. 包名原样显示，国际版 / 国内版各一 --------------------------------- */
 
+// 只看版本格：账号格里还有独立的 LLM 流 / 签到福利开关，它们用 ok 高亮是正常的。
+const versionCell = html => {
+  const start = html.indexOf('data-label="版本"');
+  const end = html.indexOf('data-label="账号"');
+  return start >= 0 && end > start ? html.slice(start, end) : '';
+};
+
 const freeIntl = row({tier: {paid: false, package: 'Free', checked_at: NOW, source: 'billing'}});
 check('国际版免费号要显示包名 Free', freeIntl.includes('>Free<'), freeIntl);
-check('免费号胶囊不带 ok 高亮', !freeIntl.includes('class="badge mini ok"'), freeIntl);
+check('免费号胶囊不带 ok 高亮', !versionCell(freeIntl).includes('class="badge mini ok"'), freeIntl);
 
 const freeCn = row({realm: 'cn', tier: {paid: false, package: '体验版', checked_at: NOW, source: 'billing'}});
 check('国内版免费号要显示包名 体验版', freeCn.includes('体验版'), freeCn);
 
 const paid = row({tier: {paid: true, package: 'Pro', checked_at: NOW, source: 'billing'}});
 check('付费号显示包名', paid.includes('>Pro<'), paid);
-check('付费号胶囊带 ok 高亮', paid.includes('class="badge mini ok"'), paid);
+check('付费号胶囊带 ok 高亮', versionCell(paid).includes('class="badge mini ok"'), paid);
 
 /* ---- 2. 胶囊的位置：版本格里、区域徽章下方 ------------------------------- */
 

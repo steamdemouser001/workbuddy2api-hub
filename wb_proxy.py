@@ -21671,7 +21671,21 @@ class Handler(BaseHTTPRequestHandler):
         return self._json_panel(200, {"account": updated})
 
     def _route_accounts_set_all(self, payload):
-        POOL.set_all_enabled(bool(payload.get("enabled")))
+        # Two independent bulk switches: `enabled` for LLM dispatch,
+        # `tasksEnabled` for check-in / rewards. Applying one never changes
+        # the other, matching the per-account controls.
+        changed = False
+        if "enabled" in payload:
+            POOL.set_all_enabled(bool(payload.get("enabled")))
+            changed = True
+        if "tasksEnabled" in payload:
+            POOL.set_all_tasks_enabled(bool(payload.get("tasksEnabled")))
+            changed = True
+        if not changed:
+            return self._error(
+                400,
+                "nothing to update: pass 'enabled' or 'tasksEnabled'"
+            )
         return self._json_panel(200, {"accounts": account_views()})
 
     def _route_accounts_delete(self, payload):

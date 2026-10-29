@@ -1,0 +1,88 @@
+name: build-image
+
+# 只构建 Docker 镜像并上传为可下载的 artifact，不部署、不接触服务器。
+#
+# 触发方式：
+#   * push 到 main（只在这些文件变化时）
+#   * 手动 workflow_dispatch（可指定任意 ref）
+#
+# 产物：wb-proxy-image-<sha>.zip（内含 docker save 出来的 tar.gz + SHA256SUMS.txt）。
+# 下载后在本地解压，手动 scp 到服务器 docker load 即可，仓库不需要任何 SSH /
+# registry 密钥。
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "要构建的 git ref（默认 main）"
+        required: false
+        default: main
+  push:
+    branches: [main]
+    paths:
+      - "wb_*.py"
+      - "dashboard.html"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/build-image.yml"
+
+permissions:
+  contents: read
+
+# 同一 ref 只保留最新一次构建，避免排队构建旧提交。
+concurrency:
+  group: build-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref }}
+
+      - name: Build image
+        run: |
+          set -euo pipefail
+          IMAGE="wb-proxy:sha-${GITHUB_SHA}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          docker build -t "$IMAGE" .
+          docker image inspect "$IMAGE" --format 'image id: {{.Id}}  size: {{.Size}} bytes'
+
+      - name: Export image for download
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          OUT="dist/wb-proxy-image-${GITHUB_SHA}.tar.gz"
+          docker save "$IMAGE" | gzip -9 > "$OUT"
+          (cd dist && sha256sum "$(basename "$OUT")" > SHA256SUMS.txt)
+          ls -lh dist
+          cat dist/SHA256SUMS.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wb-proxy-image-${{ github.sha }}
+          path: dist/
+          compression-level: 0          # 已经 gzip 过，别再压一次
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Summary
+        run: |
+          {
+            echo "### build-image"
+            echo ""
+            echo "- source ref: \`${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref }}\`"
+            echo "- commit: \`${{ github.sha }}\`"
+            echo "- image tag inside tar: \`wb-proxy:sha-${{ github.sha }}\`"
+            echo "- artifact: \`wb-proxy-image-${{ github.sha }}\`"
+            echo ""
+            echo "下载后在服务器上执行："
+            echo '```bash'
+            echo "gunzip -c wb-proxy-image-${{ github.sha }}.tar.gz | docker load"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

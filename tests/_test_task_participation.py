@@ -1,9 +1,9 @@
 """Per-account task participation (issue #521).
 
 `enabled` controls API dispatch; `tasksEnabled` controls check-in, growth
-tasks, streak bonus, cat travel and the intl daily activity. Accounts written
-before the field existed follow `enabled`, and disabling an account stops its
-tasks unless the caller names the task flag explicitly.
+tasks, streak bonus, cat travel and the intl daily activity. The two switches
+are independent: changing one never changes the other, per account or in bulk.
+Accounts written before the field existed still follow `enabled` at load time.
 
 Run with: python tests/_test_task_participation.py
 """
@@ -99,19 +99,38 @@ class PoolToggleTests(unittest.TestCase):
         self.assertEqual(sorted(a.uid for a in self.pool.task_accounts("cn")),
                          ["uid-a", "uid-c"])
 
-    def test_disable_stops_tasks_and_can_be_overridden(self):
+    def test_api_switch_does_not_touch_tasks(self):
+        # uid-c starts with both on. Closing LLM flow keeps rewards running.
         self.pool.set_enabled("uid-c", False)
-        self.assertFalse(self.pool.get("uid-c").tasks_enabled)
-        self.pool.set_tasks_enabled("uid-c", True)
         self.assertFalse(self.pool.get("uid-c").enabled)
-        self.assertTrue(self.pool.get("uid-c").task_active())
-        self.pool.set_enabled("uid-c", True)
         self.assertTrue(self.pool.get("uid-c").tasks_enabled)
+        self.pool.set_tasks_enabled("uid-c", False)
+        self.assertFalse(self.pool.get("uid-c").enabled)
+        self.assertFalse(self.pool.get("uid-c").task_active())
+        # Re-opening LLM flow must not silently re-enable rewards either.
+        self.pool.set_enabled("uid-c", True)
+        self.assertTrue(self.pool.get("uid-c").enabled)
+        self.assertFalse(self.pool.get("uid-c").tasks_enabled)
 
     def test_explicit_both_flags(self):
         self.pool.set_enabled("uid-c", False, tasks_enabled=True)
         self.assertFalse(self.pool.get("uid-c").enabled)
         self.assertTrue(self.pool.get("uid-c").task_active())
+
+    def test_bulk_switches_are_independent(self):
+        self.pool.set_all_enabled(False)
+        self.assertEqual([a.enabled for a in self.pool.accounts],
+                         [False, False, False])
+        self.assertEqual([a.tasks_enabled for a in self.pool.accounts],
+                         [True, False, True])
+        self.pool.set_all_tasks_enabled(False)
+        self.assertEqual([a.tasks_enabled for a in self.pool.accounts],
+                         [False, False, False])
+        self.pool.set_all_enabled(True)
+        self.assertEqual([a.enabled for a in self.pool.accounts],
+                         [True, True, True])
+        self.assertEqual([a.tasks_enabled for a in self.pool.accounts],
+                         [False, False, False])
 
 
 class RouteTests(unittest.TestCase):
@@ -150,7 +169,7 @@ class RouteTests(unittest.TestCase):
             self.assertTrue(body["account"]["enabled"])
             self.assertFalse(body["account"]["tasksEnabled"])
 
-    def test_disable_follows_and_explicit_task_flag_wins(self):
+    def test_disable_keeps_tasks_and_explicit_flag_wins(self):
         with tempfile.TemporaryDirectory() as directory:
             pool = self._pool(directory)
             with mock.patch.object(wb_proxy, "POOL", pool):
@@ -158,11 +177,19 @@ class RouteTests(unittest.TestCase):
                                          "enabled": False})
                 self.assertEqual(code, 200)
                 self.assertFalse(body["account"]["enabled"])
-                self.assertFalse(body["account"]["tasksEnabled"])
+                # Closing LLM flow no longer stops rewards.
+                self.assertTrue(body["account"]["tasksEnabled"])
                 code, body = self._call({"uid": "uid-route",
-                                         "tasksEnabled": True})
+                                         "tasksEnabled": False})
                 self.assertEqual(code, 200)
                 self.assertFalse(body["account"]["enabled"])
+                self.assertFalse(body["account"]["tasksEnabled"])
+                # A caller can still set both in one request.
+                code, body = self._call({"uid": "uid-route",
+                                         "enabled": True,
+                                         "tasksEnabled": True})
+                self.assertEqual(code, 200)
+                self.assertTrue(body["account"]["enabled"])
                 self.assertTrue(body["account"]["tasksEnabled"])
 
 
